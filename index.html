@@ -76,6 +76,8 @@
     border:1px solid rgba(255,255,255,.3); background:#fff; object-fit:contain;
   }
   .username{ font-weight:800; letter-spacing:.3px; font-size:12px; line-height:1.2; }
+  .loginbtn{ background:#2563eb; color:#fff; border:none; padding:6px 10px; border-radius:8px; font-weight:800; cursor:pointer; font-size:12px; }
+  .loginbtn:hover{ background:#1e40af; }
   .infobar{
     background:var(--ups-blue);
     color:#fff;
@@ -207,11 +209,10 @@
         <div class="brandleft">UPSSSC Typing Module</div>
         <div class="brandright">
           <div class="userbox">
-            <!-- Symbolic clipart avatar -->
             <img class="avatar" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="candidate avatar">
             <div class="username" id="userName">CANDIDATE</div>
           </div>
-          <button id="loginBtn" class="btn" style="padding:6px 10px; font-size:12px">Log in</button>
+          <button id="loginBtn" class="loginbtn" title="Login to track attempts & leaderboard">Log in</button>
         </div>
       </div>
       <div class="infobar" aria-live="polite">
@@ -368,7 +369,6 @@
       </div>
     </div>
   </div>
-
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   /* ===== Elements ===== */
@@ -431,91 +431,9 @@ document.addEventListener('DOMContentLoaded', function(){
     cmpHITyped: document.getElementById('cmpHITyped'),
   };
 
-  /* ===== Backend API (Google Apps Script) ===== */
-  // TODO: Replace with your deployed Apps Script Web App URL
-  const API_BASE = 'REPLACE_WITH_YOUR_APPS_SCRIPT_WEB_APP_URL';
-
-  const api = {
-    async call(action, payload){
-      const res = await fetch(API_BASE, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ action, payload })
-      });
-      const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
-      if (!j.ok) throw new Error(j.error||'API error');
-      return j.data;
-    },
-    login: (email, name)=> api.call('login', { email, name }),
-    logAttempt: (p)=> api.call('logAttempt', p),
-    stats: ()=> api.call('stats'),
-    visit: (fp, page)=> api.call('visit', { fingerprint: fp, page })
-  };
-
-  /* ===== Simple client-side session (no passwords) ===== */
-  let currentUser = null;
-
-  function showToast(msg){
-    els.toast.textContent = msg;
-    els.toastWrap.classList.add('show');
-    clearTimeout(window.__toastTimer);
-    window.__toastTimer = setTimeout(()=> els.toastWrap.classList.remove('show'), 1600);
-  }
-
-  function wordsOf(text){ return text && text.trim().length ? text.trim().split(/\s+/) : []; }
-
-  function getFingerprint(){
-    const k = navigator.userAgent + '|' + screen.width + 'x' + screen.height + '|' + (Intl.DateTimeFormat().resolvedOptions().timeZone||'');
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(k))
-      .then(b => Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,32));
-  }
-  async function ensureVisitLogged(){ try{ const fp = await getFingerprint(); api.visit(fp, location.pathname).catch(()=>{}); }catch(_){} }
-
-  async function promptLogin(){
-    const email = (prompt('Enter your email (for leaderboard):')||'').trim();
-    if (!email) return;
-    const name = (prompt('Display name (optional):')||'').trim();
-    try{
-      const u = await api.login(email, name);
-      currentUser = u;
-      els.userName.textContent = (u.name || u.email).toUpperCase();
-      localStorage.setItem('typing_user', JSON.stringify(u));
-      showToast('✅ Logged in');
-      updateUserStatsInUI(u);
-    }catch(e){
-      showToast('⚠️ Login failed');
-      console.error(e);
-    }
-  }
-  function loadUserFromStorage(){
-    try{
-      const raw = localStorage.getItem('typing_user');
-      if (!raw) return;
-      const u = JSON.parse(raw);
-      if (u && u.email){ currentUser = u; els.userName.textContent = (u.name||u.email).toUpperCase(); updateUserStatsInUI(u); }
-    }catch(_){ }
-  }
-  function updateUserStatsInUI(u){
-    const b = Number(u.bestNet||0).toFixed(2);
-    const a = Number(u.attempts||0);
-    const bestEl = document.getElementById('userBest');
-    const attEl  = document.getElementById('userAttempts');
-    if (bestEl) bestEl.innerHTML = b + '<span class="u"> WPM</span>';
-    if (attEl)  attEl.textContent = a;
-  }
-  async function refreshStatsUI(){
-    try{
-      const s = await api.stats();
-      const ga = document.getElementById('globalAvg');
-      if (ga) ga.innerHTML = Number(s.average||0).toFixed(2) + '<span class="u"> WPM</span>';
-      const top = document.getElementById('topList');
-      if (top){ top.innerHTML = (s.top10||[]).map(x => `<li><b>${x.name}</b> — ${Number(x.net||0).toFixed(2)} WPM</li>`).join(''); }
-    }catch(e){ console.warn('stats fetch failed', e); }
-  }
-
   /* ===== Instructions (exact text) ===== */
-  const INSTRUCTIONS_HTML = `
-    <ol>
+  const INSTRUCTIONS_HTML = 
+    `<ol>
       <li>The candidates will be provided with the master text passage of about 1500 key depressions in English.</li>
       <li>The typing can be either word based typing or key strokes based typing.</li>
       <li>For example, 35 w.p.m. is about 10500 key depressions per hour and 30 w.p.m. corresponds to about 9000 key depression per hour.</li>
@@ -544,13 +462,19 @@ document.addEventListener('DOMContentLoaded', function(){
   let englishPassage = "";
   let hindiPassage   = "";
 
-  /* ===== Toast (reuse showToast above) ===== */
+  /* ===== Toast ===== */
   let toastTimer = null;
+  function showToast(msg){
+    els.toast.textContent = msg;
+    els.toastWrap.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> els.toastWrap.classList.remove('show'), 1600);
+  }
 
   /* ===== Helpers ===== */
   const debounce = (fn, ms=80)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+  function wordsOf(text){ return text && text.trim().length ? text.trim().split(/\s+/) : []; }
   function setPassage(text){
-    if (!text) { els.textDisplay.textContent = 'Select a passage and click “Start”.'; return; }
     const words = text.split(/\s+/);
     els.textDisplay.innerHTML = words.map((w,i)=>`<span data-i="${i}">${w}</span>`).join(' ');
   }
@@ -581,9 +505,19 @@ document.addEventListener('DOMContentLoaded', function(){
     els.submitBtn.disabled = !running ? true : false;
     if (els.passageSet) els.passageSet.disabled = running;
   }
-  function refreshInfoBar(){ els.infoLang.textContent = (stage === 'HI') ? 'Hindi' : 'English'; }
-  function swapToResultPage(){ els.typingStage.style.display = 'none'; els.resultStage.classList.add('show'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-  function swapToTypingPage(){ els.resultStage.classList.remove('show'); els.typingStage.style.display = ''; window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  function refreshInfoBar(){
+    els.infoLang.textContent = (stage === 'HI') ? 'Hindi' : 'English';
+  }
+  function swapToResultPage(){
+    els.typingStage.style.display = 'none';
+    els.resultStage.classList.add('show');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function swapToTypingPage(){
+    els.resultStage.classList.remove('show');
+    els.typingStage.style.display = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   function resetAll(){
     if (intervalId) { clearInterval(intervalId); intervalId=null; }
@@ -624,7 +558,9 @@ document.addEventListener('DOMContentLoaded', function(){
   /* ===== BACKSPACE LOCK: current + previous word only (monotonic) ===== */
   function computeLockIndex(val){
     const spaces = [];
-    for (let i = 0; i < val.length; i++){ if (val[i] === ' ') spaces.push(i); }
+    for (let i = 0; i < val.length; i++){
+      if (val[i] === ' ') spaces.push(i);
+    }
     if (spaces.length <= 1) return -1;      // <2 spaces → no lock yet
     return spaces[spaces.length - 2];       // lock at second-last space (inclusive)
   }
@@ -647,7 +583,7 @@ document.addEventListener('DOMContentLoaded', function(){
     try{
       lastSelStart = els.inputArea.selectionStart;
       lastSelEnd   = els.inputArea.selectionEnd;
-    }catch(_){ }
+    }catch(_){}
   }
   function violatesPrefixLock(prev, next, boundary){
     if (boundary < 0) return false;
@@ -655,16 +591,6 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   /* ===== Flow ===== */
-  function openInstructionsAndStart(){
-    els.instrBody.innerHTML = INSTRUCTIONS_HTML;
-    els.instrBackdrop.classList.add('show');
-    const ok = ()=>{ els.instrBackdrop.classList.remove('show'); instructionsShownOnce = true; actuallyStartStage(); };
-    const cancel = ()=>{ els.instrBackdrop.classList.remove('show'); setButtonsRunning(false); };
-    els.instrOk.onclick = ok;
-    els.instrCancel.onclick = cancel;
-  }
-  function startStage(){ if (started) return; setButtonsRunning(true); if (!instructionsShownOnce && stage === 'EN'){ openInstructionsAndStart(); } else { actuallyStartStage(); } }
-
   function actuallyStartStage(){
     started = true; timeLeft=300; startedAt=Date.now(); els.timerEl.textContent='5:00';
     els.inputArea.value=''; els.inputArea.disabled=false; els.inputArea.focus();
@@ -691,9 +617,28 @@ document.addEventListener('DOMContentLoaded', function(){
     renderTime();
     if (intervalId) clearInterval(intervalId);
     intervalId = setInterval(function(){
-      timeLeft--; renderTime();
-      if (timeLeft <= 0){ clearInterval(intervalId); intervalId=null; finishStage(); }
+      timeLeft--;
+      renderTime();
+      if (timeLeft <= 0){
+        clearInterval(intervalId); intervalId=null;
+        finishStage();
+      }
     }, 1000);
+  }
+
+  function openInstructionsAndStart(){
+    els.instrBody.innerHTML = INSTRUCTIONS_HTML;
+    els.instrBackdrop.classList.add('show');
+    const ok = ()=>{ els.instrBackdrop.classList.remove('show'); instructionsShownOnce = true; actuallyStartStage(); };
+    const cancel = ()=>{ els.instrBackdrop.classList.remove('show'); setButtonsRunning(false); };
+    els.instrOk.onclick = ok;
+    els.instrCancel.onclick = cancel;
+  }
+  function startStage(){
+    if (started) return;
+    setButtonsRunning(true);
+    if (!instructionsShownOnce && stage === 'EN'){ openInstructionsAndStart(); }
+    else { actuallyStartStage(); }
   }
 
   async function finishStage(){
@@ -703,9 +648,9 @@ document.addEventListener('DOMContentLoaded', function(){
 
     if (stage==='EN'){
       // Wait to show results until Hindi completes
-      let prep=8; els.textDisplay.innerHTML=`Hindi starts in <b>${prep}</b> seconds… Select font if needed.`;
+      let prep=8; els.textDisplay.innerHTML='Hindi starts in <b>'+prep+'</b> seconds… Select font if needed.';
       const prepInt=setInterval(function(){
-        prep--; els.textDisplay.innerHTML=`Hindi starts in <b>${prep}</b> seconds… Select font if needed.`;
+        prep--; els.textDisplay.innerHTML='Hindi starts in <b>'+prep+'</b> seconds… Select font if needed.';
         if(prep<=0){ clearInterval(prepInt); stage='HI'; els.timerEl.textContent='5:00'; els.startBtn.textContent='Start Hindi'; startStage(); }
       },1000);
     } else {
@@ -715,7 +660,7 @@ document.addEventListener('DOMContentLoaded', function(){
       els.startBtn.textContent='Restart';
       swapToResultPage();
 
-      // ===== Log attempt + refresh stats (if logged in) =====
+      // ===== push attempt + refresh stats (if logged in) =====
       try{
         const payload = {
           userId: currentUser && currentUser.userId,
@@ -731,11 +676,16 @@ document.addEventListener('DOMContentLoaded', function(){
         };
         if (payload.userId){
           await api.logAttempt(payload);
+          // refresh local user cache
           const fresh = await api.login(currentUser.email, currentUser.name);
-          currentUser = fresh; localStorage.setItem('typing_user', JSON.stringify(fresh)); updateUserStatsInUI(fresh);
+          currentUser = fresh;
+          localStorage.setItem('typing_user', JSON.stringify(fresh));
+          updateUserStatsInUI(fresh);
         }
         refreshStatsUI();
-      }catch(e){ console.warn('attempt logging failed', e); }
+      }catch(e){
+        console.warn('attempt logging failed', e);
+      }
     }
     started=false;
   }
@@ -744,30 +694,34 @@ document.addEventListener('DOMContentLoaded', function(){
   const MIN_WORDS_EN = 150; // 30*5
   const MIN_WORDS_HI = 125; // 25*5
 
-  // UPDATED: Instant-highlight next word on space
+  // ✅ Instant next-word highlight after pressing Space
   function highlightProgress(){
     const refWords = passage.split(/\s+/);
     const typedRaw = els.inputArea.value;
-    const endsWithSpace = /\s$/.test(typedRaw);
+    const endsWithSpace = /\s$/.test(typedRaw);  // detect trailing space
     const typedWords = wordsOf(typedRaw);
     const spans = els.textDisplay.querySelectorAll('span');
 
+    // clear classes
     for (let i=0;i<spans.length;i++){ spans[i].classList.remove('ok','err','cur'); }
 
-    const compareCount = Math.min(typedWords.length, refWords.length);
-    for (let i=0;i<compareCount;i++){
-      // If user hasn't hit space, don't finalize the *current* word yet
-      if (!endsWithSpace && i === typedWords.length - 1) break;
+    // mark fully committed words only; if trailing space, last word is committed
+    const committedCount = Math.min(typedWords.length - (endsWithSpace ? 0 : 1), refWords.length);
+    for (let i=0;i<committedCount;i++){
       if (typedWords[i] === refWords[i]) spans[i].classList.add('ok');
       else spans[i].classList.add('err');
     }
 
+    // cursor (cur) on the *next* word immediately after space
     let curIndex = endsWithSpace ? typedWords.length : Math.max(0, typedWords.length - 1);
     if (curIndex >= refWords.length) curIndex = refWords.length - 1;
     if (curIndex < 0) curIndex = 0;
 
     const curSpan = spans[curIndex];
-    if (curSpan){ curSpan.classList.add('cur'); curSpan.scrollIntoView({block:'nearest', inline:'nearest'}); }
+    if (curSpan){
+      curSpan.classList.add('cur');
+      curSpan.scrollIntoView({block:'nearest', inline:'nearest'});
+    }
   }
   const debouncedHighlight = debounce(highlightProgress, 80);
 
@@ -785,9 +739,16 @@ document.addEventListener('DOMContentLoaded', function(){
     const aligned = [];
     let i=m, j=n;
     while(i>0 && j>0){
-      if (refArr[i-1] === typedArr[j-1]){ aligned.push({ type:'ok', ref:refArr[i-1], typed:typedArr[j-1] }); i--; j--; }
-      else if (dp[i-1][j] >= dp[i][j-1]){ aligned.push({ type:'del', ref:refArr[i-1], typed:null }); i--; }
-      else { aligned.push({ type:'ins', ref:null, typed:typedArr[j-1] }); j--; }
+      if (refArr[i-1] === typedArr[j-1]){
+        aligned.push({ type:'ok', ref:refArr[i-1], typed:typedArr[j-1] });
+        i--; j--;
+      } else if (dp[i-1][j] >= dp[i][j-1]){
+        aligned.push({ type:'del', ref:refArr[i-1], typed:null });
+        i--;
+      } else {
+        aligned.push({ type:'ins', ref:null, typed:typedArr[j-1] });
+        j--;
+      }
     }
     while(i>0){ aligned.push({ type:'del', ref:refArr[i-1], typed:null }); i--; }
     while(j>0){ aligned.push({ type:'ins', ref:null, typed:typedArr[j-1] }); j--; }
@@ -798,10 +759,14 @@ document.addEventListener('DOMContentLoaded', function(){
     for (let k=0; k<aligned.length; k++){
       const curr = aligned[k];
       if (curr.type==='del' && k+1 < aligned.length && aligned[k+1].type==='ins'){
-        merged.push({ type:'sub', ref:curr.ref, typed:aligned[k+1].typed }); k++;
+        merged.push({ type:'sub', ref:curr.ref, typed:aligned[k+1].typed });
+        k++;
       } else if (curr.type==='ins' && k+1 < aligned.length && aligned[k+1].type==='del'){
-        merged.push({ type:'sub', ref:aligned[k+1].ref, typed:curr.typed }); k++;
-      } else { merged.push(curr); }
+        merged.push({ type:'sub', ref:aligned[k+1].ref, typed:curr.typed });
+        k++;
+      } else {
+        merged.push(curr);
+      }
     }
     return merged;
   }
@@ -852,7 +817,7 @@ document.addEventListener('DOMContentLoaded', function(){
     const overTyped = Math.max(0, typedWords.length - refWords.length);
     wrong += overTyped;
 
-    const curIndex = Math.max(0, typedWords.length - 1);
+    const curIndex = Math.max(0, Math.min(refWords.length-1, typedWords.length - 1));
     const curSpan = spans[curIndex];
     if (curSpan){ curSpan.classList.add('cur'); curSpan.scrollIntoView({block:'nearest', inline:'nearest'}); }
 
@@ -864,8 +829,8 @@ document.addEventListener('DOMContentLoaded', function(){
     const penalty = Math.max(0, wrong - grace);
 
     // WPMs
-    const grossWPM = (keystrokes / 5) / minutes;          // from keystrokes (per your rule)
-    const netWPM   = Math.max(0, (totalWords - penalty)) / minutes; // displayed
+    const grossWPM = (keystrokes / 5) / minutes;          
+    const netWPM   = Math.max(0, (totalWords - penalty)) / minutes;
 
     const minSpeed = stage === 'HI' ? 25 : 30;
     const minWords = stage === 'HI' ? MIN_WORDS_HI : MIN_WORDS_EN;
@@ -919,8 +884,14 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   function renderComparisons(){
-    if (results.EN){ els.cmpENRef.innerHTML = results.EN.cmp.refHTML || ''; els.cmpENTyped.innerHTML = results.EN.cmp.typedHTML || ''; }
-    if (results.HI){ els.cmpHIRef.innerHTML = results.HI.cmp.refHTML || ''; els.cmpHITyped.innerHTML = results.HI.cmp.typedHTML || ''; }
+    if (results.EN){
+      els.cmpENRef.innerHTML = results.EN.cmp.refHTML || '';
+      els.cmpENTyped.innerHTML = results.EN.cmp.typedHTML || '';
+    }
+    if (results.HI){
+      els.cmpHIRef.innerHTML = results.HI.cmp.refHTML || '';
+      els.cmpHITyped.innerHTML = results.HI.cmp.typedHTML || '';
+    }
     els.comparisonSection.classList.remove('hidden');
   }
 
@@ -928,17 +899,26 @@ document.addEventListener('DOMContentLoaded', function(){
   window.addEventListener('keydown', function(e){
     if (!started) return;
     if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'r'))){
-      showToast('⚠️ CTRL/CMD or Paste not allowed'); e.preventDefault();
+      showToast('⚠️ CTRL/CMD or Paste not allowed');
+      e.preventDefault();
     }
   });
 
   /* ===== Keep caret out of locked region ===== */
   els.inputArea.addEventListener('select', snapCaretIfNeeded);
-  document.addEventListener('selectionchange', function(){ if (!started) return; if (document.activeElement === els.inputArea) snapCaretIfNeeded(); });
+  document.addEventListener('selectionchange', function(){
+    if (!started) return;
+    if (document.activeElement === els.inputArea) snapCaretIfNeeded();
+  });
   function snapCaretIfNeeded(){
     if (lockIdx < 0) return; // no lock
-    const s = els.inputArea.selectionStart; const e = els.inputArea.selectionEnd; const leftMost = Math.min(s, e);
-    if (leftMost <= lockIdx){ const safe = Math.max(lockIdx + 1, Math.max(s, e)); els.inputArea.setSelectionRange(safe, safe); }
+    const s = els.inputArea.selectionStart;
+    const e = els.inputArea.selectionEnd;
+    const leftMost = Math.min(s, e);
+    if (leftMost <= lockIdx){
+      const safe = Math.max(lockIdx + 1, Math.max(s, e));
+      els.inputArea.setSelectionRange(safe, safe);
+    }
   }
 
   /* ===== Primary: beforeinput ===== */
@@ -949,21 +929,28 @@ document.addEventListener('DOMContentLoaded', function(){
     const t = e.inputType;
 
     if (t === 'insertFromPaste' || t === 'insertFromDrop'){
-      showToast('⚠️ CTRL/CMD or Paste not allowed'); e.preventDefault(); return;
+      showToast('⚠️ CTRL/CMD or Paste not allowed');
+      e.preventDefault(); 
+      return;
     }
 
     const deletionTypes = new Set([
-      'deleteContentBackward','deleteContentForward','deleteByCut','deleteByComposition','historyUndo','deleteByDrag'
+      'deleteContentBackward','deleteContentForward','deleteByCut',
+      'deleteByComposition','historyUndo','deleteByDrag'
     ]);
 
-    let s = e.target.selectionStart; let ed = e.target.selectionEnd;
+    let s = e.target.selectionStart;
+    let ed = e.target.selectionEnd;
 
     if (t === 'insertText' || t === 'insertCompositionText'){
       if (s !== ed && Math.min(s, ed) <= prevLockIdx){ e.preventDefault(); return; }
       if (s === ed && s <= prevLockIdx){ e.preventDefault(); return; }
     } else if (deletionTypes.has(t)){
       let aStart = s, aEnd = ed;
-      if (s === ed){ if (t === 'deleteContentBackward'){ aStart = s - 1; aEnd = s; } else if (t === 'deleteContentForward'){ aStart = s; aEnd = s + 1; } }
+      if (s === ed){
+        if (t === 'deleteContentBackward'){ aStart = s - 1; aEnd = s; }
+        else if (t === 'deleteContentForward'){ aStart = s; aEnd = s + 1; }
+      }
       if (aStart <= prevLockIdx){ e.preventDefault(); return; }
     }
   });
@@ -975,8 +962,16 @@ document.addEventListener('DOMContentLoaded', function(){
     const changeKeys = ['Backspace','Delete','Enter',' ','ArrowLeft','Home'];
     if (e.key && changeKeys.includes(e.key)) snapshotTextarea();
 
-    if (e.ctrlKey || e.metaKey){ if (e.key !== 'Control' && e.key !== 'Meta'){ showToast('⚠️ CTRL/CMD or Paste not allowed'); } e.preventDefault(); return; }
-    if (e.shiftKey && e.key === 'Insert'){ showToast('⚠️ CTRL/CMD or Paste not allowed'); e.preventDefault(); return; }
+    if (e.ctrlKey || e.metaKey){
+      if (e.key !== 'Control' && e.key !== 'Meta'){ showToast('⚠️ CTRL/CMD or Paste not allowed'); }
+      e.preventDefault(); 
+      return;
+    }
+    if (e.shiftKey && e.key === 'Insert'){
+      showToast('⚠️ CTRL/CMD or Paste not allowed');
+      e.preventDefault(); 
+      return;
+    }
 
     // prevent extra words beyond passage
     if (e.key === ' '){
@@ -990,13 +985,22 @@ document.addEventListener('DOMContentLoaded', function(){
 
     if (boundary >= 0){
       if (e.key === 'ArrowLeft' || e.key === 'Home'){
-        const s = els.inputArea.selectionStart; const en = els.inputArea.selectionEnd; const nextPos = (e.key==='Home') ? 0 : s - 1;
-        if (Math.min(nextPos, en) <= boundary){ els.inputArea.setSelectionRange(boundary + 1, boundary + 1); e.preventDefault(); return; }
+        const s = els.inputArea.selectionStart;
+        const en = els.inputArea.selectionEnd;
+        const nextPos = (e.key==='Home') ? 0 : s - 1;
+        if (Math.min(nextPos, en) <= boundary){
+          els.inputArea.setSelectionRange(boundary + 1, boundary + 1);
+          e.preventDefault(); 
+          return;
+        }
       }
       if (e.key === 'Backspace' || e.key === 'Delete'){
-        const s = els.inputArea.selectionStart; const en = els.inputArea.selectionEnd;
-        if (s !== en){ if (Math.min(s, en) <= boundary){ e.preventDefault(); return; } }
-        else {
+        const s = els.inputArea.selectionStart;
+        const en = els.inputArea.selectionEnd;
+
+        if (s !== en){
+          if (Math.min(s, en) <= boundary){ e.preventDefault(); return; }
+        } else {
           if (e.key === 'Backspace' && (s - 1) <= boundary){ e.preventDefault(); return; }
           if (e.key === 'Delete'    &&  s      <= boundary){ e.preventDefault(); return; }
         }
@@ -1023,7 +1027,10 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 
   // Block paste via context menu
-  els.inputArea.addEventListener('paste', function(e){ showToast('⚠️ CTRL/CMD or Paste not allowed'); e.preventDefault(); });
+  els.inputArea.addEventListener('paste', function(e){
+    showToast('⚠️ CTRL/CMD or Paste not allowed');
+    e.preventDefault();
+  });
 
   window.addEventListener('beforeunload', function(e){ if (!started) return; e.preventDefault(); e.returnValue=''; });
 
@@ -1031,18 +1038,20 @@ document.addEventListener('DOMContentLoaded', function(){
   els.startBtn.addEventListener('click', function(){
     if (els.startBtn.textContent==='Restart'){ resetAll(); return; }
     if (!instructionsShownOnce && stage === 'EN'){
-      els.instrBody.innerHTML = INSTRUCTIONS_HTML; els.instrBackdrop.classList.add('show');
+      els.instrBody.innerHTML = INSTRUCTIONS_HTML;
+      els.instrBackdrop.classList.add('show');
       els.instrOk.onclick = ()=>{ els.instrBackdrop.classList.remove('show'); instructionsShownOnce = true; actuallyStartStage(); };
       els.instrCancel.onclick = ()=>{ els.instrBackdrop.classList.remove('show'); setButtonsRunning(false); };
-    } else { actuallyStartStage(); }
+    } else {
+      actuallyStartStage();
+    }
   });
-  els.submitBtn.addEventListener('click', function(){ if (intervalId) clearInterval(intervalId); intervalId=null; finishStage(); });
+  els.submitBtn.addEventListener('click', function(){
+    if (intervalId) clearInterval(intervalId); intervalId=null; finishStage();
+  });
   els.resetBtn.addEventListener('click', resetAll);
   els.hindiFont.addEventListener('change', setFonts);
   els.passageSet.addEventListener('change', function(){ if (started) return; applySet(els.passageSet.value); });
-
-  const loginBtn = document.getElementById('loginBtn');
-  if (loginBtn) loginBtn.addEventListener('click', promptLogin);
 
   // Result page actions
   els.printBtn.addEventListener('click', ()=> window.print());
@@ -1060,7 +1069,9 @@ document.addEventListener('DOMContentLoaded', function(){
         sets = data.sets.filter(s => s && s.english && s.hindi);
       } else if (data.english && data.hindi) {
         sets = [{ id: data.id || 'default', label: data.label || 'Default', english: data.english, hindi: data.hindi }];
-      } else { throw new Error('Invalid passages.json format'); }
+      } else {
+        throw new Error('Invalid passages.json format');
+      }
       if (!sets.length) throw new Error('No complete EN/HI pairs found');
 
       passageSets = sets.map((s, i) => Object.assign({ id: s.id || ('set-'+i), label: s.label || ('Set '+(i+1)) }, s));
@@ -1085,12 +1096,107 @@ document.addEventListener('DOMContentLoaded', function(){
     }
   }
 
+  /* ===== Backend API (Google Apps Script) ===== */
+  // IMPORTANT: replace with your Web App URL (from Apps Script deployment)
+  const API_BASE = 'https://script.google.com/macros/s/AKfycbzqcfiQxAQArjGnjuEDgMM4KwMpWrLjVbg0qv2g3x8e28dKoTDOsrvP1FdmgDDEyeIX/exec';
+
+  const api = {
+    async call(action, payload){
+      if (!API_BASE || API_BASE.includes('PUT_YOUR_APPS_SCRIPT')) throw new Error('API_BASE not set');
+      const res = await fetch(API_BASE, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ action, payload })
+      });
+      const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
+      if (!j.ok) throw new Error(j.error||'API error');
+      return j.data;
+    },
+    login: (email, name)=> api.call('login', { email, name }),
+    logAttempt: (p)=> api.call('logAttempt', p),
+    stats: ()=> api.call('stats'),
+    visit: (fp, page)=> api.call('visit', { fingerprint: fp, page })
+  };
+
+  /* ===== Simple client-side session (no passwords) ===== */
+  let currentUser = null;
+
+  function getFingerprint(){
+    // lightweight visitor hash (for unique visits)
+    const k = navigator.userAgent + '|' + screen.width + 'x' + screen.height + '|' + (Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(k))
+      .then(b => Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,32));
+  }
+
+  async function ensureVisitLogged(){
+    try{
+      const fp = await getFingerprint();
+      api.visit(fp, location.pathname).catch(()=>{});
+    }catch(_){}
+  }
+
+  async function promptLogin(){
+    const email = (prompt('Enter your email (for leaderboard):')||'').trim();
+    if (!email) return;
+    const name = (prompt('Display name (optional):')||'').trim();
+    try{
+      const u = await api.login(email, name);
+      currentUser = u;
+      els.userName.textContent = (u.name || u.email).toUpperCase();
+      localStorage.setItem('typing_user', JSON.stringify(u));
+      showToast('✅ Logged in');
+      updateUserStatsInUI(u);
+    }catch(e){
+      showToast('⚠️ Login failed');
+      console.error(e);
+    }
+  }
+
+  function loadUserFromStorage(){
+    try{
+      const raw = localStorage.getItem('typing_user');
+      if (!raw) return;
+      const u = JSON.parse(raw);
+      if (u && u.email) { currentUser = u; els.userName.textContent = (u.name||u.email).toUpperCase(); updateUserStatsInUI(u); }
+    }catch(_){}
+  }
+
+  function updateUserStatsInUI(u){
+    const b = Number(u.bestNet||0).toFixed(2);
+    const a = Number(u.attempts||0);
+    const bestEl = document.getElementById('userBest');
+    const attEl  = document.getElementById('userAttempts');
+    if (bestEl) bestEl.innerHTML = b + '<span class="u"> WPM</span>';
+    if (attEl)  attEl.textContent = a;
+  }
+
+  async function refreshStatsUI(){
+    try{
+      const s = await api.stats();
+      const ga = document.getElementById('globalAvg');
+      if (ga) ga.innerHTML = (s.average||0).toFixed(2) + '<span class="u"> WPM</span>';
+      const top = document.getElementById('topList');
+      if (top){
+        top.innerHTML = (s.top10||[]).map(x => `<li><b>${x.name}</b> — ${x.net.toFixed(2)} WPM</li>`).join('');
+      }
+    }catch(e){
+      console.warn('stats fetch failed', e);
+    }
+  }
+
+  // init visit + session + login button
+  ensureVisitLogged();
+  loadUserFromStorage();
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.addEventListener('click', promptLogin);
+
   // Init
   resetAll();
   loadPassages();
-  ensureVisitLogged();
-  loadUserFromStorage();
+  // Try fetching global stats on load (won't break if API not set)
+  refreshStatsUI();
 });
 </script>
 </body>
 </html>
+
